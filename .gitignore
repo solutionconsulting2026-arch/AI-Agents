@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.gemini/
+.system_generated/
+scratch/
+test_net.js
+scratch_check.js
+verify_bundle.js
+download_vendor.js
+check_github_repo.js

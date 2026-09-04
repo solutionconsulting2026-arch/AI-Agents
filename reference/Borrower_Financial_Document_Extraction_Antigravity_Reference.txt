@@ -1,0 +1,263 @@
+BORROWER FINANCIAL DOCUMENT EXTRACTION AGENT REFERENCE SPECIFICATION FOR
+ANTIGRAVITY PROTOTYPE Source: Ambient_Flow_Use_Cases.xlsx Focus: Flow 01
+— Borrower Financial Document Extraction
+
+IMPORTANT: This reference is a distilled representation of the Excel
+requirements. Treat it as the primary business reference for the
+prototype.
+
+1.  FLOW IDENTITY
+
+-   Flow: Flow 01 — Borrower Financial Document Extraction
+-   RFP Alignment: Use Case 1 — Credit Assist / Credit Note Preparation
+-   Target Users: Credit Analysts, Credit Ops (Branch / SME / Corporate
+    credit hubs)
+-   Trigger: Document Upload Trigger — DMS folder / S3 staging drop of
+    borrower financials
+-   AI Engine: AWS Textract (OCR / table extraction) + Bedrock Claude
+    Vision (scans, handwriting)
+-   HITL: Exception-only — fields below configured confidence threshold
+    routed to analyst
+-   Target SLA: p50 < 60 sec/document; p95 < 120 sec; endpoint
+    availability 99.5% monthly
+
+2.  BUSINESS OBJECTIVE Convert borrower-submitted financial documents —
+    audited balance sheets, P&L, bank statements, GST returns, ITR and
+    provisional financials — into a validated, structured financial
+    dataset that downstream credit flows can consume without re-keying.
+
+3.  IN SCOPE
+
+-   OCR and table extraction
+-   Handwritten / low-quality scan reading
+-   Line-item mapping to bank chart of accounts
+-   Ratio and cash-flow computation
+-   Per-field confidence scoring
+-   Exception routing
+
+4.  OUT OF SCOPE
+
+-   Credit decisioning
+-   Risk scoring
+-   Credit note drafting
+-   Bureau and statutory registry pulls
+-   Customer-facing communication
+
+5.  BUSINESS SCENARIO Current manual process:
+
+-   MSME/corporate borrower submits a pack of 3 years’ financials, 12
+    months’ bank statements and GST/ITR filings.
+-   Documents may be scanned PDFs, photographed documents or handwritten
+    pages.
+-   Analyst manually spreads financials into appraisal templates,
+    typically taking 3–6 hours per proposal.
+-   Transcription errors can silently flow into ratios, risk scores and
+    credit notes.
+
+With the Ambient Flow: - Pack lands in DMS/S3 and processing starts
+automatically. - Extraction/spreading should complete in under 2 minutes
+per document. - Analyst reviews only flagged exceptions. - Every field
+is traceable to source document page/coordinates. - One structured
+dataset feeds downstream credit workflows.
+
+6.  END-TO-END FLOW
+7.  Trigger — DMS / S3 Watch
+    -   Watch borrower-financials folder.
+    -   Capture proposal ID, borrower CIF, document type and uploader.
+    -   Open audit log/WORM record.
+    -   Output: execution instance + document manifest.
+8.  Pre-Flight Validation
+    -   Check file type, size, page count, password protection and
+        malware.
+    -   Split multi-document PDFs into logical units.
+    -   Invalid files returned to uploader with reason.
+    -   Output: clean page-split document set.
+9.  Document Classification
+    -   Classify as balance sheet, P&L, cash flow, bank statement, GST
+        return, ITR or provisional.
+    -   Detect financial year and entity name.
+    -   Unclassified units queued for analyst tagging.
+    -   Output: tagged document inventory by type and FY.
+10. Layout Retrieval
+    -   Retrieve closest known statement-layout template from pgvector.
+    -   Use template for table parsing and line-item mapping.
+    -   If no match, fall back to generic parsing.
+    -   Output: parsing hints such as table zones and expected labels.
+11. Textract Extraction
+    -   OCR and table extraction across pages.
+    -   Capture every cell with page number and bounding-box
+        coordinates.
+    -   Output: raw table/key-value JSON with coordinates.
+    -   Security: VPC/private endpoint, AES-256 at rest.
+12. Vision Fallback
+    -   Trigger for low OCR confidence, handwriting, skewed photos or
+        faint print.
+    -   Re-read affected page with Bedrock Claude Vision.
+    -   Merge recovered values into extraction set.
+    -   Mark Vision output as lower-tier evidence.
+13. Normalization / Mapping
+    -   Map extracted line items to bank-standard chart of accounts.
+    -   Normalize units: lakh / crore / absolute.
+    -   Normalize currency.
+    -   Normalize sign conventions.
+    -   Unmapped items become exceptions.
+    -   Output: standardized financial spreading schema per FY.
+14. Reconciliation / Integrity Checks
+    -   Balance sheet balances.
+    -   Totals equal component sums.
+    -   Opening/closing balances tie across years.
+    -   Bank-statement credits reconcile to reported turnover.
+    -   Bank-statement credits reconcile to GST.
+    -   Any failed tie-out forces analyst review.
+    -   Output: pass/fail tie-out report per check.
+15. Ratio & Cash-Flow Derivation Deterministically calculate:
+    -   Current ratio
+    -   DSCR
+    -   TOL/TNW
+    -   Leverage
+    -   Interest coverage
+    -   Working-capital cycle
+    -   EBITDA margin
+    -   Monthly average bank balance
+    -   Credit summations
+    -   3-year trends IMPORTANT: formulas must be deterministic, not
+        LLM-generated.
+16. Confidence Scoring
+
+-   Per-field confidence based on OCR confidence, template match
+    strength and tie-out result.
+-   Attach source page and coordinates to every field.
+-   Grounding accuracy target: >=95%.
+
+11. Exception Routing / HITL
+
+-   Above threshold: pass through.
+-   Low-confidence fields: review task.
+-   Unmapped fields: review task.
+-   Failed tie-outs: review task.
+-   Review UI renders source page side-by-side with extracted data.
+-   Analyst corrections must be captured.
+
+12. Publish / Persist
+
+-   Write approved dataset to Postgres against proposal ID.
+-   Version the dataset.
+-   Emit completion event for downstream CAM drafting and risk scoring.
+-   Write back to LOS/CRMNEXT.
+-   Notify analyst.
+-   Close 10-year WORM audit trail.
+-   Outputs: structured financial JSON, versioned dataset.
+
+13. Learn / Feedback
+
+-   Feed analyst corrections into layout template/mapping-rule library.
+-   Improve extraction for repeated document formats.
+-   Do NOT fine-tune models on customer data.
+
+7.  INPUTS
+
+-   Borrower financial pack
+-   Audited/provisional financials
+-   Bank statements
+-   GST returns
+-   ITR
+-   Proposal ID
+-   CIF from LOS
+-   Chart-of-accounts mapping dictionary
+-   Statement layout template library
+
+8.  OUTPUTS
+
+-   Structured financial dataset (JSON)
+-   Per-field confidence
+-   Source/page/coordinate citation
+-   3-year financial spread
+-   Ratio set
+-   Cash-flow feature set
+-   Tie-out/integrity report
+-   Exception log
+-   Analyst corrections
+
+9.  DOWNSTREAM CONSUMERS
+
+-   Flow 02 — Credit Note (CAM) Drafting Agent
+-   Risk scoring / scrutiny alerting
+-   Early Warning Signals & loan portfolio monitoring
+
+10. DEPENDENCIES
+
+-   DMS / S3 access and event hooks
+-   Textract
+-   Bedrock Vision
+-   VPC private endpoints
+-   Postgres
+-   pgvector
+-   LOS / CRMNEXT write-back API
+-   Analyst review UI
+-   Bank-owned KMS keys
+
+11. KEY RISKS
+
+-   Poor-quality scans increasing exception volume
+-   Non-standard/group-entity statement formats
+-   Stale mapping dictionary
+-   Over-reliance on extracted numbers without tie-out enforcement
+
+12. PROTOTYPE UX MUST DEMONSTRATE The user must be able to:
+
+-   Open a credit proposal
+-   Open the financial extraction agent
+-   See all borrower documents
+-   Upload/select a document
+-   See simulated validation/classification/extraction progress
+-   View the source financial document
+-   View extracted financial fields
+-   Click a field and see the source evidence highlighted
+-   See original label vs standardized field
+-   See unit/currency normalization
+-   See confidence and reason
+-   Run/view reconciliation
+-   View ratios and 3-year trends
+-   Open exceptions
+-   Accept/edit/reject an exception
+-   Save analyst correction
+-   Automatically re-run impacted validation/calculations
+-   Approve financial spread
+-   Publish financial dataset
+-   See downstream handoff events
+-   View complete audit trail
+
+13. CRITICAL ARCHITECTURE PRINCIPLE AI interprets:
+
+-   Classification
+-   Document understanding
+-   OCR interpretation
+-   Table understanding
+-   Semantic mapping
+-   Vision fallback
+-   Exception explanation
+
+Deterministic rules calculate/validate: - Unit conversion - Currency
+conversion - Sign normalization - Reconciliation - Ratio calculation -
+Threshold evaluation - State transitions
+
+CRM handles: - Tasks - Human review - Approval - Audit - Versioning -
+Storage - Workflow orchestration
+
+14. DEMO ASSUMPTION EXAMPLE Use a clearly fictional borrower: ABC
+    Manufacturing Pvt Ltd CIF: CIF-567890123 Proposal: PR-10045 Loan:
+    Business Term Loan Requested Amount: ₹15 Cr Credit Stage: Credit
+    Appraisal Credit Analyst: Rahul Sharma Relationship Manager: Aditi
+    Mehta Financial Years: FY2022-23, FY2023-24, FY2024-25
+
+Mark all displayed values: DEMO DATA — NOT REAL CUSTOMER INFORMATION
+
+15. IMPORTANT BOUNDARY This agent prepares trusted, validated financial
+    data. It does NOT:
+
+-   Approve the loan
+-   Make the credit decision
+-   Generate the final CAM
+-   Perform risk scoring Those are downstream processes.
+
+END OF REFERENCE

@@ -1,0 +1,9 @@
+{
+  "name": "ai-agents",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Agents for Enterprise Banking & Credit Scrutiny",
+  "scripts": {
+    "build": "node vercel_build.js"
+  }
+}
